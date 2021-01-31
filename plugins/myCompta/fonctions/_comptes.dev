@@ -1,0 +1,91 @@
+<?php 
+
+if (isset($_POST['source']) && $_POST['source'] === 'AJAX') {
+	$_POST['fonction']();
+}
+
+
+function tableauOperations() {
+	session_start();
+	
+	require_once $_SERVER['DOCUMENT_ROOT'] . '/_plugins/myCompta/class/Compte.php';
+	require_once $_SERVER['DOCUMENT_ROOT'] . '/_frameworks/myFramework/fonctions/_myERP.php';
+
+	if ($_POST['args']['filtreAffiche'] === 'echeances'){
+		$compte = new Compte(array(
+				'idObjet' => $_POST['args']['idCompte'],
+		));
+		var_dump($compte->getEcheances());
+	}
+	else {
+		$compte = new Compte(array(
+				'idObjet' => $_POST['args']['idCompte'],
+				'specifiqueClasse' => array(
+						'debutPeriode' => $_POST['args']['debutPeriode'],
+						'finPeriode' => $_POST['args']['finPeriode'],
+						'filtreAffiche' => $_POST['args']['filtreAffiche'],
+				)
+		));
+	}
+
+
+	if ($compte->getValeur('Operations')){
+		$argsTableau = array(
+				'niveauAcces' => $_SESSION['myCompta'],
+				'enTete' => $compte->getValeur('Operations')[0]->getTableEnTeteDefinition(),
+				'donnees' => $compte->getValeur('Operations'),
+				'options' => array (
+						'idObjet' => $compte->getValeur('nomID'),
+						'type' => $compte->getDroits('myCompta'),
+						'lien' => 'index.php?module=myCompta&rubrique=Compte&objet=Operation'
+				),
+				'nbPage' =>'0',
+				'niveauDroitAjout' => null,//getNiveauDroit($compte->getDroits('myCompta')['droits'],'ajout'),
+		);
+		creationTableau($argsTableau);
+	}
+	else { ?>
+		<div class='center'><hr><strong>Pas d'opérations sur cette période</strong><hr></div>
+	<?php  }
+}
+
+
+
+
+function listeCompte($afficheSolde = false) { 
+	require_once $_SERVER['DOCUMENT_ROOT'] . '/_plugins/myCompta/scripts/myCompta.php';
+    
+    // On va récupérer la liste de nos comptes
+    $monCompte = new Compte();
+    $listeComptes = $monCompte->getListeObjet();
+
+	?>
+	<div class="widget">
+	<?php
+	// On va classer les comptes par banque
+	$banque = array();
+	foreach ($listeComptes as $compte) {
+		$banque[$compte->getValeur('idBanque')][] = $compte;
+	}
+
+	// On affiche le détail de chaque compte
+	$idBanque = null;
+	foreach ($banque as $cle => $ligne){
+		if ($cle !== $idBanque) {
+			$idBanque = $cle;
+			// On affiche le nom de la banque ?>
+			<div><strong><?php echo strtoupper($ligne[0]->getValeur('nomBanque')); ?></strong></div>
+		<?php }
+
+		foreach ($ligne as $compte){
+			// On affiche le détail du compte s'il appartient à la banque
+			if ((int)$compte->getValeur('idBanque') === $idBanque) {?>
+				<a href="index.php?module=myCompta&rubrique=Compte&idCompte=<?php echo $compte->getValeur('idCompte'); ?>"><?php echo $compte->getValeur('libelleCompte'); ?></a>
+					<?php if ($afficheSolde) { ?>
+						<span class="pull-right <?php echo ((int)$compte->getValeur('soldeCours') >= 0 ? "credit": "debit");  ?>"><?php echo $compte->getValeur('soldeCours'); ?>€</span>
+					<?php } ?><br>
+			<?php }
+		}
+	}
+	?> </div> <?php
+}

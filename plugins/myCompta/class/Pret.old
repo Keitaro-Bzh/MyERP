@@ -1,0 +1,177 @@
+<?php
+//require_once $_SERVER['DOCUMENT_ROOT'] . '/frameworks/myFramework/class/MyERP.php';
+
+class Pret extends MyERP
+{
+	protected $idPret;
+	protected $Compte;
+	protected $libelle;
+	protected $typeEmprunt;
+	protected $montantEmprunt;
+	protected $montantAssurance;
+	protected $tauxBase;
+	protected $TEAG;
+	protected $mensualite;
+	protected $dateSignature;
+	protected $date1erEcheance;
+	protected $dureePret;
+	protected $PretEcheancier;
+	protected $nbPalier;
+	protected $onArchive;
+	
+	protected function getClasseDefinition() {
+		$this->nomTable = "mycompta_prets";
+		$this->nomID = "idPret";
+		$this->suiviModification = true;
+		$this->champTriDefaut = array('libelle');
+		$this->ordreTriDefaut = 'ASC';
+	}
+	
+	public function __construct($args = null) {
+		$args = array(
+			'idObjet' => ((isset($args) AND (int)$args['idObjet'] > 0) ? (int)$args['idObjet']: null),
+			'classeLiens' => array(
+				array(
+					'plugin' => 'myCompta',
+					'classeLien' => 'Compte',
+					'nomLienID' => 'idCompte',
+					'typeLien' => '1<->1'
+				),
+				array(
+					'plugin' => 'myCompta',
+					'classeLien' => 'PretEcheancier',
+					'nomLienID' => 'idPret',
+					'typeLien' => '1<->x'
+				)
+			)
+		);
+		parent::__construct($args);
+	}
+
+	public function getBaseDefinition() {
+		$baseDefinition = array(
+				'idPret' => $this->baseDefinition('int',true,true,true,true),
+				'idCompte' => $this->baseDefinition('int',false,false,true,false),
+				'libelle' => $this->baseDefinition('varchar(100)',false,false,false,false),
+				'typeEmprunt' => $this->baseDefinition('varchar(30)',false,false,false,false),
+				'montantEmprunt' => $this->baseDefinition('double',false,false,false,false),
+				'montantAssurance' => $this->baseDefinition('double',false,false,false,false),
+				'mensualite' => $this->baseDefinition('double',false,false,false,false),
+				'tauxBase' => $this->baseDefinition('float',false,false,false,false),
+				'TEAG' => $this->baseDefinition('float',false,false,false,false),
+				'dateSignature' => $this->baseDefinition('varchar(255)',false,false,false,false),
+				'date1erEcheance' => $this->baseDefinition('date',false,false,false,false),
+				'dureePret' => $this->baseDefinition('int',false,false,false,false),
+				'nbPalier' => $this->baseDefinition('int',false,false,false,false),
+				'onArchive' => $this->baseDefinition('tinyint',false,false,false,false)
+		);
+		return  $baseDefinition;
+	}
+	
+	public function getTableEnTeteDefinition() {
+		$baseDefinition = $this->getBaseDefinition();
+		return array(
+				'idPret' => setTableLigneDefinition('id',true,$baseDefinition['idPret']['typeChamp']),
+				'libelle' => setTableLigneDefinition("Libellé",true,$baseDefinition['libelle']['typeChamp']),
+				'montantEmprunt' => setTableLigneDefinition("Montant",true,$baseDefinition['montantEmprunt']['typeChamp']),
+				'dureePret' => setTableLigneDefinition("Durée (en mois)",true,$baseDefinition['dureePret']['typeChamp']),
+				'mensualite' => setTableLigneDefinition("Mensualite",true,'float')
+		);
+	}
+	public function getListeObjet($args = null) {
+		if (isset($args['filtre'])) {
+			$maConnexion = $this->getConnexion();
+			switch ($args['filtre']) {
+				case 'compte':
+					$requete = "SELECT idPret
+					FROM " . $this->nomTable . "
+					WHERE
+						idCompte = '" . $args['valeur'] . "'AND onArchive is null";
+					break;
+				case 'date':
+					$date = new DateTime();
+					$requete = "SELECT idPret FROM " . $this->nomTable . " WHERE '"
+					. date('Y-m-d') . "' >= date1erEcheance AND  onArchive is null";
+					break;
+				default:
+					$requete = "SELECT idPret FROM " . $this->nomTable;
+					break;
+			}
+			$requete = $maConnexion->query($requete);
+			$tableID = $requete->fetchAll();
+			$tableObjet = null;
+			foreach ($tableID as $id) {
+				$tableObjet[] = new Pret(array('idObjet'=>$id['idPret']));
+			}
+			return $tableObjet;
+		}
+		else {
+			return parent::getListeObjet($args);
+		}
+	}
+	
+	/* On va surcharger la fonction d'enregistrement pour deux raisons
+	 *  - Générer en même temps que le prêt le tableau d'amortissement
+	 *  - Mettre à jour le montant de l'échéance du prêt
+	 */
+	public function setObjet() {
+		$this->idPret = parent::setObjet();
+		$this->mensualite = $this->generateTableauAmortissement();
+		//$mensuatite = $this->setObjet();
+	}
+
+
+	/* ****************************************************
+	 * 		FONCTIONS SPECIFIQUES A LA CLASSE EN COURS
+	 * ****************************************************/
+	public function generateTableauAmortissement() {
+		// On va initialiser nos variables pour chaque echéance
+		$dateEcheance = null;
+		$dateProchaineEcheance = $this->date1erEcheance;
+		$capitalRestant = $this->montantEmprunt;
+		$numEcheance = 1;
+		
+		// On va boucler en fonction du nombre de mois
+		while ($dateEcheance !== $dateProchaineEcheance AND $numEcheance <= $this->dureePret) {
+			require_once $_SERVER['DOCUMENT_ROOT'] . '/_plugins/myCompta/class/PretEcheancier.php';
+			$echeance = new PretEcheancier();
+			
+			// On va incrémenter nos dates
+			$dateEcheance = $dateProchaineEcheance;
+			$dateProchaineEcheance = date('Y-m-d', strtotime($dateEcheance.' + 1 month'));
+			$capitalEcheancePrecedante = $capitalRestant;
+			// Règle de calcul du tableau d'amortissement
+			// Attention, le montantEcheance est calculé sans l'assurance, qu'il faut rajouter dans le tableau
+			// Attention, particularité pour un pret à taux 0
+			if ($this->tauxBase > 0) {
+				$tauxPeriodique = ($this->tauxBase/100)/12;
+				$montantEcheance = round($this->montantEmprunt * $tauxPeriodique / (1 - pow((1 + $tauxPeriodique),$this->dureePret * -1)),2);
+				$capitalRestant = round(($capitalRestant * (1 + $tauxPeriodique) - $montantEcheance),2);
+				$capitalRembourse = round($capitalEcheancePrecedante - $capitalRestant,2);
+				$interet = round($montantEcheance - $capitalRembourse,2);
+			}
+			else {
+				$montantEcheance = round($this->montantEmprunt / $this->dureePret,2);
+				$capitalRestant = round($capitalEcheancePrecedante - $montantEcheance,2);
+				$capitalRestant - $montantEcheance;
+				$capitalRembourse = round($capitalEcheancePrecedante - $capitalRestant,2);
+				$interet = '0.00';
+			}
+			
+			// On enregistre notre échéance
+			$echeance->setValeur('dateEcheance', $dateEcheance);
+			$echeance->setValeur('idPret', $this->idPret);
+			$echeance->setValeur('montantEcheance', $montantEcheance + $this->montantAssurance);
+			$echeance->setValeur('montantCapital', $montantEcheance + $this->montantAssurance - $interet);
+			$echeance->setValeur('montantAssurance', $this->montantAssurance);
+			$echeance->setValeur('montantInteret', $interet);
+			
+			$idEcheance = $echeance->setObjet();
+			
+			// On incrémente notre numéro d'échéance
+			$numEcheance++;
+		}
+		return $montantEcheance + $this->montantAssurance;
+	}
+}
+

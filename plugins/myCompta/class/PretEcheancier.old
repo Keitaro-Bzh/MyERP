@@ -1,0 +1,44 @@
+<?php
+//require_once $_SERVER['DOCUMENT_ROOT'] . '/frameworks/myFramework/class/MyERP.php';
+
+class PretEcheancier extends MyERP
+{
+	protected $idPretEcheance;
+	protected $idPret;
+	protected $palier;
+	protected $dateEcheance;
+	protected $montantEcheance;
+	protected $montantCapital;
+	protected $montantAssurance;
+	protected $montantInteret;
+	protected $onArchive;
+	
+	protected function getClasseDefinition() {
+		$this->nomTable = "mycompta_pretsEcheanciers";
+		$this->nomID = "idPretEcheance";
+		$this->suiviModification = true;
+		$this->champTriDefaut = array('dateEcheance');
+		$this->ordreTriDefaut = 'ASC';
+	}
+	
+	public function getBaseDefinition() {
+		$baseDefinition = array(
+				'idPretEcheance' => $this->baseDefinition('int',true,true,true,true),
+				'idPret' => $this->baseDefinition('int',false,false,false,false),
+				'palier' => $this->baseDefinition('int',false,false,false,false),
+				'dateEcheance' => $this->baseDefinition('date',false,false,true,false),
+				'montantEcheance' => $this->baseDefinition('double',false,false,false,false),
+				'montantCapital' => $this->baseDefinition('double',false,false,false,false),
+				'montantAssurance' => $this->baseDefinition('double',false,false,false,false),
+				'montantInteret' => $this->baseDefinition('double',false,false,false,false),
+				'montantAssurance' => $this->baseDefinition('double',false,false,false,false),
+				'onArchive' => $this->baseDefinition('tinyint',false,false,false,false)
+		);
+		return  $baseDefinition;
+	}
+
+	/* ****************************************************
+	 * 		FONCTIONS SPECIFIQUES A LA CLASSE EN COURS
+	 * ****************************************************/
+}
+

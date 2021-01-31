@@ -1,0 +1,167 @@
+<?php
+//require_once $_SERVER['DOCUMENT_ROOT'] . '/frameworks/myFramework/class/MyERP.php';
+
+// On va définir notre classe
+class Virement extends MyERP
+{
+	// Définition des variables correspondant à notre table dans la base
+	protected $idVirement;
+	protected $date;
+	protected $idCompteEmetteur;
+	protected $idCompteDestinataire;
+	protected $description;
+	protected $montant;
+	protected $idEcheance;
+	protected $onArchive;
+
+	protected $monCompte;
+
+	protected function getClasseDefinition() {
+		$this->nomTable = "mycompta_virements";
+		$this->nomID = "idVirement";
+		$this->suiviModification = true;
+		$this->champTriDefaut = array('libeldatele');
+		$this->ordreTriDefaut = 'ASC';
+	}	
+
+	public function getBaseDefinition() {
+		$baseDefinition = array(
+				'idVirement' => $this->baseDefinition('int',true,true,true,true),
+				'date' => $this->baseDefinition('date',false,false,false,false),
+				'idCompteEmetteur' => $this->baseDefinition('int',false,false,false,false),
+				'idCompteDestinataire' => $this->baseDefinition('int',false,false,false,false),
+				'description' => $this->baseDefinition('varchar(255)',false,false,false,false),
+				'montant' => $this->baseDefinition('float',false,false,false,false),
+				'idEcheance' => $this->baseDefinition('int',false,false,false,false),
+				'onArchive' => $this->baseDefinition('tinyint',false,false,false,false,'estRapproche')
+		);
+		return  $baseDefinition;
+	}
+	
+	/* Nous surchargeons la fonction générique compte tenu de la spécificité 
+	 * de l'ajout => nous ajoutons le virement dans la base et nous créons deux
+	 * opérations (une débit et une crédit pour les comptes choisis)
+	 */
+	public function setObjet() {
+		/* La fonction virement se fera en deux étapes:
+		 * 1- Ajout de l'opération de virement dans la table
+		 * 2- Ajout des deux opérations débit/crédit sur les comptes
+		 * 
+		 */
+		$maConnexion = $this->getConnexion();
+		$definitionTable = $this->getBaseDefinition();
+		$maDefinition = $this->getBaseDefinition();
+		
+		// Nous commençons par le traitement de notre ligne virement
+		if ($this->idVirement > 0){
+			$champsUpdate = "";
+			$executeArray = array();
+			$executeArray['id'] = $this->getValeur($this->nomID);
+			foreach ($maDefinition as $cle => $valeur){
+				// on ne prend que les champs dont le type n'est pas null
+				//if ($valeur['lienBase']) {
+					// On va construire la liste des champs à ajouter sauf l'ID
+					if ( $cle != $this->nomID) {
+						$champsUpdate = $champsUpdate . $cle . " = :" . $cle . ", ";
+						$executeArray[$cle] = $this->getValeur($cle);
+					}
+				//}
+			}
+			// On supprime les virgules dans notre tableau
+			$champsUpdate = rtrim($champsUpdate, ", ");
+			$requete = $maConnexion->prepare("UPDATE " . $this->nomTable ." SET " . $champsUpdate . " WHERE " . $this->nomID ." = :id");
+			$requete->execute($executeArray);
+			
+			// On va aller chercher l'opération de débit correspondant à notre virement
+			$requete = "SELECT idOperation FROM mycompta_operations WHERE idVirement = '" .
+					$this->idVirement . "' AND type = 'D'";
+			$resultat = $this->myQuery($requete);
+			$idOperationDebit = $resultat[0]['idOperation'];
+		
+			// On va aller chercher l'opération de crédit correspondant à notre virement
+			$requete = "SELECT idOperation FROM mycompta_operations WHERE idVirement = '" .
+					$this->idVirement . "' AND type = 'C'";
+			$resultat = $this->myQuery($requete);
+			$idOperationCredit = $resultat[0]['idOperation'];
+		}
+		else { 
+			$champsDefinition = "";
+			$champsValeur = "";
+			$executeArray = array();
+			foreach ($maDefinition as $cle => $valeur){
+				// on ne prend que les champs dont le type n'est pas null
+				//if ($valeur['lienBase']) {
+					// On va construire la liste des champs à ajouter sauf l'ID
+					if ( $cle != $this->nomID) {
+						$champsDefinition = $champsDefinition . $cle . ",";
+						$champsValeur = $champsValeur . ":" . $cle . ", ";
+						$executeArray[$cle] = $this->getValeur($cle);
+					}
+				//}
+			}
+			// On supprime les virgules dans nos tableaux
+			$champsDefinition = rtrim($champsDefinition, ",");
+			$champsValeur = rtrim($champsValeur, ", ");
+			$requete = $maConnexion->prepare("INSERT INTO " . $this->nomTable . " (" . $champsDefinition . ") VALUES (" . $champsValeur .")");
+			$requete->execute($executeArray);
+			$this->idVirement = $maConnexion->lastInsertId();
+			
+			// On initialise nos ID à null pour créer deux opérations
+			$idOperationDebit = null;
+			$idOperationCredit = null;
+		}
+
+			
+		// Nous allons ensuite créer/modifier nos opérations dans la table associée
+		$monOperationDebit = new Operation($idOperationDebit);
+		$monOperationDebit->setValeur('idCompte', $this->idCompteEmetteur);
+		$monOperationDebit->setValeur('type','D');
+		$monOperationDebit->setValeur('mode','VI');
+		$monOperationDebit->setValeur('date', $this->date);
+		$monOperationDebit->setValeur('description', $this->description);
+		$monOperationDebit->setValeur('montant',$this->montant);
+		$monOperationDebit->setValeur('idVirement',$this->idVirement);
+		$monOperationDebit->setValeur('idEcheance',$this->idEcheance);
+		$monOperationDebit->setValeur('onArchive',$this->onArchive);
+		$monOperationDebit->setObjet();
+		
+		$monOperationCredit = new Operation($idOperationCredit);
+		$monOperationCredit->setValeur('idCompte', $this->idCompteDestinataire);
+		$monOperationCredit->setValeur('type','C');
+		$monOperationCredit->setValeur('mode','VI');
+		$monOperationCredit->setValeur('date', $this->date);
+		$monOperationCredit->setValeur('description', $this->description);
+		$monOperationCredit->setValeur('montant',$this->montant);
+		$monOperationCredit->setValeur('idVirement',$this->idVirement);
+		$monOperationCredit->setValeur('idEcheance',$this->idEcheance);
+		$monOperationCredit->setValeur('onArchive',$this->onArchive);
+		$monOperationCredit->setObjet();
+	}
+
+	/* On va surcharger la fonction de suppression
+	 */
+	public function suppObjet() {
+		// On va supprimer l'opération de débit correspondant à notre virement
+		$requete = "SELECT idOperation FROM mycompta_operations WHERE idVirement = '" .
+			$this->idVirement . "' AND type = 'D'";
+		$resultat = $this->myQuery($requete);
+		$idOperationDebit = $resultat[0]['idOperation'];
+		$monOperationDebit = new Operation($idOperationDebit);
+		$monOperationDebit->suppObjet();
+		
+		// On va supprimer l'opération de crédit correspondant à notre virement
+		$requete = "SELECT idOperation FROM mycompta_operations WHERE idVirement = '" .
+			$this->idVirement . "' AND type = 'C'";
+		$resultat = $this->myQuery($requete);
+		$idOperationCredit = $resultat[0]['idOperation'];
+		$monOperationCredit = new Operation($idOperationCredit);
+		$monOperationCredit->suppObjet();
+		
+		// On supprimer le virement
+		$maConnexion = $this->ouvreConnexion();
+		$requete = $maConnexion->prepare("DELETE FROM " . $this->nomTable . " WHERE " . $this->nomID . " = '" . $this->getValeur($this->getValeur('nomID')) ."'" );
+		$requete->execute();
+	}
+
+}
+

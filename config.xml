@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<sql><type>MariaDB</type><address>localhost</address><port>3306</port><name>MyERP</name><username>user</username><password>pass</password></sql>
